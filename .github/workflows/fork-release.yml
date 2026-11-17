@@ -1,0 +1,154 @@
+name: Fork Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.7.2). Defaults to v<mygo.json version>."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ffmpeg:
+    if: github.repository_owner == 'patricks-js'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: resources/linux-amd64
+          key: ffmpeg-linux-amd64-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - name: Build ffmpeg in Alpine
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src alpine:3.22 sh -euc '
+            apk add --no-cache bash build-base curl nasm openssl-dev openssl-libs-static pkgconf tar xz
+            scripts/build-ffmpeg.sh linux-amd64
+            chown -R '"$(id -u):$(id -g)"' resources'
+      - name: Check ffmpeg build
+        run: |
+          ffmpeg="resources/linux-amd64/bin/ffmpeg"
+          ls -la "$ffmpeg"
+          "$ffmpeg" -hide_banner -protocols | grep -x '  https'
+          "$ffmpeg" -hide_banner -decoders | grep -E ' (opus|aac) '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-linux-amd64
+          path: resources/linux-amd64
+          include-hidden-files: true
+          if-no-files-found: error
+
+  release:
+    if: github.repository_owner == 'patricks-js'
+    needs: ffmpeg
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bazel-contrib/setup-bazel@0.19.1
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve tag, version, and latest yt-dlp
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "$INPUT_TAG" ]; then
+              tag="$INPUT_TAG"
+            else
+              tag="v$(jq -r .version mygo.json)"
+            fi
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          case "$tag" in
+            v*) version="${tag#v}" ;;
+            *) echo "Tag must start with v (got: $tag)" >&2; exit 1 ;;
+          esac
+          ytdlp="$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)"
+          test -n "$ytdlp" || { echo "No yt-dlp release found." >&2; exit 1; }
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "ytdlp=$ytdlp"
+          } >> "$GITHUB_OUTPUT"
+          jq --arg v "$version" '.version = $v' mygo.json > mygo.json.new
+          mv mygo.json.new mygo.json
+          echo "Building $tag (version $version) with yt-dlp $ytdlp"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ffmpeg-linux-amd64
+          path: resources/linux-amd64
+
+      - name: Build linux-amd64 bundle
+        env:
+          YT_DLP_VERSION: ${{ steps.meta.outputs.ytdlp }}
+          MEIRO_LASTFM_API_KEY: ${{ secrets.MEIRO_LASTFM_API_KEY }}
+          MEIRO_LASTFM_SECRET: ${{ secrets.MEIRO_LASTFM_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x resources/linux-amd64/bin/ffmpeg
+          bazel run //:dist -- --out dist linux-amd64
+
+      - name: Package AppImage
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          curl --fail --location --silent --show-error \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            --output "$RUNNER_TEMP/appimagetool"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+
+          dist="dist/linux-amd64"
+          archive="$(find "$dist" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "$archive" && test -f "$dist/meiro.desktop" && test -f "$dist/meiro.png"
+
+          appdir="$RUNNER_TEMP/Meiro.AppDir"
+          mkdir -p "$appdir/usr/bin"
+          tar -xzf "$archive" -C "$appdir/usr/bin"
+          cp "$dist/meiro.desktop" "$appdir/meiro.desktop"
+          cp "$dist/meiro.png" "$appdir/meiro.png"
+          sed -i 's/^Exec=.*/Exec=AppRun/' "$appdir/meiro.desktop"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'HERE="$(dirname "$(readlink -f "$0")")"' \
+            'exec "$HERE/usr/bin/meiro" "$@"' \
+            > "$appdir/AppRun"
+          chmod +x "$appdir/AppRun"
+
+          mkdir -p artifacts
+          APPIMAGETOOL_APP_NAME=Meiro VERSION="$VERSION" ARCH=x86_64 \
+            "$RUNNER_TEMP/appimagetool" --appimage-extract-and-run --no-appstream \
+              "$appdir" "artifacts/Meiro-${VERSION}-linux-amd64.AppImage"
+          (cd artifacts && sha256sum ./* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* \
+              --title "Meiro $VERSION" \
+              --generate-notes \
+              --target "${{ github.sha }}"
+          fi
