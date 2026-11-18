@@ -9,6 +9,20 @@ on:
         description: "Release tag (e.g. v0.7.2). Defaults to v<mygo.json version>."
         required: false
         type: string
+      ref:
+        description: "Git ref or SHA to build. Defaults to current commit."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.7.2). Defaults to v<mygo.json version>."
+        required: false
+        type: string
+      ref:
+        description: "Git ref or SHA to build. Defaults to current commit."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -19,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/cache@v6
         id: cache
         with:
@@ -52,6 +68,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: bazel-contrib/setup-bazel@0.19.1
         with:
           bazelisk-cache: true
@@ -64,9 +82,9 @@ jobs:
         id: meta
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
             if [ -n "$INPUT_TAG" ]; then
               tag="$INPUT_TAG"
             else
@@ -150,5 +168,5 @@ jobs:
             gh release create "$TAG" artifacts/* \
               --title "Meiro $VERSION" \
               --generate-notes \
-              --target "${{ github.sha }}"
+              --target "${{ inputs.ref || github.sha }}"
           fi
