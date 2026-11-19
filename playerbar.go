@@ -128,9 +128,25 @@ func (a *app) volumeSlider(c *ui.Context, vertical bool) ui.Element {
 	return slider
 }
 
+func (a *app) volumeScroll(ev ui.InputEvent) bool {
+	if ev.Kind != ui.InputScroll || ev.DY == 0 || ev.Momentum {
+		return false
+	}
+	step := float64(volumeStep)
+	if ev.DY > 0 {
+		step = -step
+	}
+	prev := a.volume
+	a.setVolume(a.volume + step)
+	if a.volume != prev {
+		a.saveSettings()
+	}
+	return true
+}
+
 func (a *app) volumeControl(c *ui.Context, sliderWidth float32) {
 	a.nowPlaying.volumePopup = false
-	ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(0).Children(func() {
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(0).HandleInput(a.volumeScroll).Children(func() {
 		a.hinted(c, func() {
 			a.muteButton(c)
 		}, keymap.Mute)
@@ -147,14 +163,14 @@ func (a *app) volumeControl(c *ui.Context, sliderWidth float32) {
 
 func (a *app) compactVolumeControl(c *ui.Context) {
 	sc := m3.Of(c).Scheme
-	ui.Row(c).Shrink(0).Children(func() {
+	ui.Row(c).Shrink(0).HandleInput(a.volumeScroll).Children(func() {
 		var anchor ui.Element
 		a.hinted(c, func() { anchor = a.muteButton(c) }, keymap.Mute)
 
 		open := anchor.Hovered() || anchor.FocusVisible() || a.nowPlaying.volumePopup
 		var slider ui.Element
 		panel := ui.PopoverBase(c, anchor, &open, func(panel ui.Element) {
-			panel.Key("volume-popup").Width(64).Padding(8).Radius(m3.Large).Margin(0).Background(sc.SurfaceContainerHigh)
+			panel.Key("volume-popup").Width(64).Padding(8).Radius(m3.Large).Margin(0).Background(sc.SurfaceContainerHigh).HandleInput(a.volumeScroll)
 			m3.Elevation(c, panel, 3)
 			a.hinted(c, func() {
 				ui.Column(c).Width(48).Height(128).Center().Children(func() {

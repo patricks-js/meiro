@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **The mouse wheel adjusts the volume.** Scrolling over the volume slider or mute button in the player bar, now playing view, or mini player raises or lowers the volume in 5% steps.
+
 ## [0.7.2] - 2026-11-17
 
 ### Changed

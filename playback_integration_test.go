@@ -30,6 +30,7 @@ import (
 	"github.com/elianiva/meiro/internal/history"
 	"github.com/elianiva/meiro/internal/offline"
 	"github.com/elianiva/meiro/internal/playstate"
+	"github.com/elianiva/meiro/internal/settings"
 	"github.com/elianiva/meiro/systemmedia"
 	"github.com/elianiva/meiro/youtube"
 )
@@ -1935,6 +1936,58 @@ func TestNarrowPlayerBarRevealsVerticalVolumeSliderOnHover(t *testing.T) {
 	tt.Move(24, 24)
 	if _, ok := tt.Find("Volume"); ok {
 		t.Fatal("moving away from the volume control leaves its slider open")
+	}
+}
+
+func TestMouseWheelAdjustsVolume(t *testing.T) {
+	a, _ := playbackApp(t)
+	a.current = tracks("a")[0]
+	a.setVolume(50)
+	a.saver.Path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.view, 1200, 700)
+	tt.Frame()
+
+	volume, ok := tt.Find("Volume")
+	if !ok {
+		t.Fatalf("missing Volume slider: %q", tt.Texts())
+	}
+	tt.Wheel(volume.X+volume.W/2, volume.Y+volume.H/2, 0, -40)
+	tt.Frame()
+	a.saver.Wait()
+	if a.volume != 55 || settings.Load(a.saver.Path).Volume != 55 {
+		t.Fatalf("scrolling up on Volume set volume to %v (saved %v), want 55", a.volume, settings.Load(a.saver.Path).Volume)
+	}
+
+	mute, ok := tt.Find("Mute")
+	if !ok {
+		t.Fatalf("missing Mute button: %q", tt.Texts())
+	}
+	tt.Wheel(mute.X+mute.W/2, mute.Y+mute.H/2, 0, 40)
+	tt.Frame()
+	a.saver.Wait()
+	if a.volume != 50 || settings.Load(a.saver.Path).Volume != 50 {
+		t.Fatalf("scrolling down on Mute set volume to %v (saved %v), want 50", a.volume, settings.Load(a.saver.Path).Volume)
+	}
+
+	if a.volumeScroll(ui.InputEvent{Kind: ui.InputScroll, DY: -40, Momentum: true}) {
+		t.Fatal("momentum scroll should be ignored")
+	}
+
+	narrow := ui.NewTester(a.view, 920, 700)
+	narrow.Frame()
+	mute, ok = narrow.Find("Mute")
+	if !ok {
+		t.Fatalf("missing narrow Mute button: %q", narrow.Texts())
+	}
+	narrow.Move(mute.X+mute.W/2, mute.Y+mute.H/2)
+	popoverVol, ok := narrow.Find("Volume")
+	if !ok {
+		t.Fatalf("hovering Mute did not open volume popover: %q", narrow.Texts())
+	}
+	narrow.Wheel(popoverVol.X+popoverVol.W/2, popoverVol.Y+popoverVol.H/2, 0, -40)
+	narrow.Frame()
+	if a.volume != 55 {
+		t.Fatalf("scrolling up on compact volume popover set volume to %v, want 55", a.volume)
 	}
 }
 
