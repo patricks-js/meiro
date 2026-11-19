@@ -1991,6 +1991,59 @@ func TestMouseWheelAdjustsVolume(t *testing.T) {
 	}
 }
 
+func TestUpNextButtonOpensCompactPopup(t *testing.T) {
+	a, _ := tonesApp(t, 3)
+	items := tracks("a", "b", "c")
+	a.play(items[0], items)
+	tt := ui.NewTester(a.view, 1200, 700)
+	tt.Frame()
+
+	if err := tt.Click("Up next"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+
+	if a.nowPlaying.open {
+		t.Fatal("clicking Up next opened the full Now Playing screen")
+	}
+	if !a.nowPlaying.queuePopup {
+		t.Fatal("clicking Up next did not open the compact queue popup")
+	}
+	clearBtn, ok := tt.Find("Clear queue")
+	if !ok {
+		t.Fatalf("compact queue popup did not render the queue controls: %q", tt.Texts())
+	}
+	trackB, ok := tt.Find(items[1].Title)
+	if !ok {
+		t.Fatalf("compact queue popup did not render upcoming track %q: %q", items[1].Title, tt.Texts())
+	}
+	if trackB.Y+trackB.H-clearBtn.Y > 700*0.40 {
+		t.Fatalf("queue popup content exceeds 40%% of window height: headerY=%v trackBottom=%v", clearBtn.Y, trackB.Y+trackB.H)
+	}
+	if upNextBtn, ok := tt.Find("Up next"); ok && trackB.Y+trackB.H > upNextBtn.Y-30 {
+		t.Fatalf("queue popup overlaps player bar area: trackBottom=%v upNextY=%v", trackB.Y+trackB.H, upNextBtn.Y)
+	}
+
+	if err := tt.Click(items[1].Title); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.current.VideoID != items[1].VideoID {
+		t.Fatalf("clicking track in Up next popup played %q, want %q", a.current.VideoID, items[1].VideoID)
+	}
+	if a.nowPlaying.open {
+		t.Fatal("picking a track from the Up next popup opened the full Now Playing screen")
+	}
+
+	if err := tt.Click("Open the player"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.nowPlaying.open || a.nowPlaying.queuePopup {
+		t.Fatalf("Open the player state: open=%v queuePopup=%v, want open=true queuePopup=false", a.nowPlaying.open, a.nowPlaying.queuePopup)
+	}
+}
+
 func TestTheWindowTitleNamesTheTrackPlaying(t *testing.T) {
 	a, _ := tonesApp(t, 3)
 	item := youtube.MusicItem{VideoID: "a", Title: "All Because of You", Artist: "Bill", Artists: "Bill Withers, Grover Washington"}

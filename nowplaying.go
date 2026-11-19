@@ -47,6 +47,8 @@ type nowPlayingState struct {
 	volumeDraft          float64
 	volumeHeld           bool
 	volumePopup          bool
+	queuePopup           bool
+	queueScroll          ui.ScrollState
 	lyrics               lyricsState
 	lyricsScroll         ui.ScrollState
 	details              detailsState
@@ -290,7 +292,7 @@ func (a *app) sidePanel(c *ui.Context, wide, compactQueue bool) {
 		case tabRelated:
 			a.relatedView(c)
 		case tabQueue:
-			a.queueView(c, compactQueue)
+			a.queueView(c, compactQueue, ui.Transparent)
 		}
 	})
 	a.lyricsSourceDialog(c)
@@ -397,7 +399,7 @@ func (a *app) selectQueueRow(index int, mods ui.Modifiers) {
 	a.nowPlaying.queueSelectionCursor = row
 }
 
-func (a *app) queueView(c *ui.Context, compact bool) {
+func (a *app) queueView(c *ui.Context, compact bool, fadeBG ui.Color) {
 	sc := &m3.Of(c).Scheme
 	q := &a.queue
 	gap, top, pull, pad := float32(20), float32(8), float32(8), float32(16)
@@ -474,25 +476,46 @@ func (a *app) queueView(c *ui.Context, compact bool) {
 	if compact {
 		listBottomPadding = 4
 	}
-	view := ui.List(c, list, q.rows(), func(row int) {
-		index, ok := q.trackAt(row)
-		if !ok {
-			height := float32(40)
-			topPadding := float32(8)
-			if compact {
-				height = 32
-				topPadding = 4
+	var view ui.Element
+	buildList := func() {
+		view = ui.List(c, list, q.rows(), func(row int) {
+			index, ok := q.trackAt(row)
+			if !ok {
+				height := float32(40)
+				topPadding := float32(8)
+				if compact {
+					height = 32
+					topPadding = 4
+				}
+				ui.Column(c).Height(height).Padding(topPadding, 8, 0).Justify(ui.Center).Background(sc.SurfaceContainerLow.Mix(sc.Surface, 0.1)).Children(func() {
+					m3.EmphasizedText(c, m3.TitleSmall, "Recommended").TextColor(sc.OnSurfaceVariant).SingleLine()
+				})
+				return
 			}
-			ui.Column(c).Height(height).Padding(topPadding, 8, 0).Justify(ui.Center).Background(sc.SurfaceContainerLow.Mix(sc.Surface, 0.1)).Children(func() {
-				m3.EmphasizedText(c, m3.TitleSmall, "Recommended").TextColor(sc.OnSurfaceVariant).SingleLine()
+			o := songOptions{directQueue: true, source: q.source, list: "queue", position: index, row: row, compact: compact}
+			o.calls, o.rowKey = a.queueRowCalls(q.at(index), o, row)
+			o.callsSet = true
+			a.songRow(c, q.at(index), q.items, o)
+		}).Grow(1).Padding(0, 8, listBottomPadding).FocusRing(false)
+	}
+	if fadeBG == ui.Transparent {
+		buildList()
+	} else {
+		ui.Column(c).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
+			buildList()
+			view.TrackScroll(&a.nowPlaying.queueScroll)
+			ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(16).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
+				if a.nowPlaying.queueScroll.Y > 0.5 {
+					p.FillGradient(r, ui.LinearGradient{From: fadeBG, To: fadeBG.Alpha(0), Angle: 180}, 0)
+				}
 			})
-			return
-		}
-		o := songOptions{directQueue: true, source: q.source, list: "queue", position: index, row: row, compact: compact}
-		o.calls, o.rowKey = a.queueRowCalls(q.at(index), o, row)
-		o.callsSet = true
-		a.songRow(c, q.at(index), q.items, o)
-	}).Grow(1).Padding(0, 8, listBottomPadding).FocusRing(false)
+			ui.Box(c).Absolute().Bottom(0).Left(0).Right(0).Height(28).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
+				if a.nowPlaying.queueScroll.Y < a.nowPlaying.queueScroll.MaxY-0.5 {
+					p.FillGradient(r, ui.LinearGradient{From: fadeBG, To: fadeBG.Alpha(0), Angle: 0}, 0)
+				}
+			})
+		})
+	}
 	if index, ok := q.trackAt(a.nowPlaying.queueSelectionCursor); ok {
 		if view.Submitted() {
 			a.clearQueueSelection()

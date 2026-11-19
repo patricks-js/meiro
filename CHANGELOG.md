@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **The mouse wheel adjusts the volume.** Scrolling over the volume slider or mute button in the player bar, now playing view, or mini player raises or lowers the volume in 5% steps.
+- **Up next opens as a compact popup from the player bar.** Clicking the Up next button shows the queue in a compact floating island above the bar without leaving the current page; clicking the track info or expand button still opens the full player.
 
 ## [0.7.2] - 2026-11-17
 

@@ -253,7 +253,7 @@ func TestKeyboardPlayerTabsAndQueue(t *testing.T) {
 	a.queue.replace(a.current, tracks("a", "b", "c"), 0, "Keyboard test")
 	tt := ui.NewTester(a.view, 1280, 800)
 	tt.Frame()
-	tabTo(t, tt, "Up next")
+	tabTo(t, tt, "Open the player")
 	tt.Key(0, ui.KeyEnter)
 	tt.Advance(time.Second)
 	tabTo(t, tt, "Up next")

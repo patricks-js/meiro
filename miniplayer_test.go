@@ -1210,9 +1210,7 @@ func TestNotchCoverOpensNowPlaying(t *testing.T) {
 			a.router.Push("/home")
 			main := ui.NewTester(a.view, 1000, 700)
 			if input == "keyboard" {
-				if err := main.Click("Up next"); err != nil {
-					t.Fatal(err)
-				}
+				a.openPlayer(tabQueue, true)
 				main.Advance(time.Second)
 				if !a.nowPlaying.queueOnly {
 					t.Fatal("precondition: main window did not open the queue")

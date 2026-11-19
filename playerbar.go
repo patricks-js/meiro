@@ -190,6 +190,41 @@ func speedLabel(speed float64) string {
 	return strconv.FormatFloat(speed, 'f', -1, 64) + "×"
 }
 
+func (a *app) upNextButton(c *ui.Context) {
+	sc := m3.Of(c).Scheme
+	anchor := m3.IconButton(c, m3.IconButtonSpec{
+		Icon:     m3.IconQueue,
+		Label:    "Up next",
+		Toggle:   true,
+		Selected: a.nowPlaying.queuePopup,
+		Key:      "bar-queue",
+	})
+	if anchor.Clicked() {
+		a.nowPlaying.queuePopup = !a.nowPlaying.queuePopup
+	}
+	if a.nowPlaying.open {
+		a.nowPlaying.queuePopup = false
+	}
+	if !a.nowPlaying.queuePopup {
+		return
+	}
+	windowWidth, windowHeight := c.Size()
+	popupWidth := min(float32(480), max(windowWidth-32, 240))
+	popupHeight := min(windowHeight*0.36, 380)
+	wasOpen := a.nowPlaying.queuePopup
+	ui.PopoverBase(c, anchor, &a.nowPlaying.queuePopup, func(panel ui.Element) {
+		panel.Key("bar-queue-popup").Width(popupWidth).Height(popupHeight).
+			Radius(m3.ExtraLarge).Margin(34, 0, 0, 0).Background(sc.SurfaceContainerHigh).Clip()
+		m3.Elevation(c, panel, 3)
+		ui.Column(c).Grow(1).MinWidth(0).MinHeight(0).Padding(12, 0, 0).Children(func() {
+			a.queueView(c, true, sc.SurfaceContainerHigh)
+		})
+	})
+	if wasOpen && !a.nowPlaying.queuePopup {
+		c.AnimationFrame()
+	}
+}
+
 func (a *app) speedButton(c *ui.Context, key string) {
 	speed := a.speedFor(a.current)
 	anchor := m3.IconButton(c, m3.IconButtonSpec{Icon: m3.IconMore, Label: "Playback speed: " + speedLabel(speed), Key: key})
@@ -387,9 +422,7 @@ func (a *app) playerBar(c *ui.Context) {
 				a.compactVolumeControl(c)
 			}
 			a.speedButton(c, "bar-speed")
-			if m3.IconButton(c, m3.IconButtonSpec{Icon: m3.IconQueue, Label: "Up next", Key: "bar-queue"}).Clicked() {
-				a.openPlayer(tabQueue, true)
-			}
+			a.upNextButton(c)
 			if m3.IconButton(c, m3.IconButtonSpec{Icon: m3.IconExpandLess, Label: "Open the player", Key: "bar-expand"}).Clicked() {
 				a.openPlayer(a.nowPlaying.tab, false)
 			}
