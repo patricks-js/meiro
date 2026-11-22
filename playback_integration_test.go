@@ -31,6 +31,7 @@ import (
 	"github.com/elianiva/meiro/internal/offline"
 	"github.com/elianiva/meiro/internal/playstate"
 	"github.com/elianiva/meiro/internal/settings"
+	"github.com/elianiva/meiro/internal/ytdlp"
 	"github.com/elianiva/meiro/systemmedia"
 	"github.com/elianiva/meiro/youtube"
 )
@@ -2041,6 +2042,62 @@ func TestUpNextButtonOpensCompactPopup(t *testing.T) {
 	tt.Frame()
 	if !a.nowPlaying.open || a.nowPlaying.queuePopup {
 		t.Fatalf("Open the player state: open=%v queuePopup=%v, want open=true queuePopup=false", a.nowPlaying.open, a.nowPlaying.queuePopup)
+	}
+}
+
+func TestAgeRestrictedTrackFallsBackToAccountCookies(t *testing.T) {
+	var auth audioAuth
+	auth.set("SID=adult-session", false)
+	var traces resolveTraces
+
+	var cookiesSeen []string
+	resolve := resolveAudioWith(
+		func(context.Context, string) (string, time.Duration, error) {
+			return "", 0, errors.New("LOGIN_REQUIRED: Sign in to confirm your age")
+		},
+		func(_ context.Context, _ string, cookie string) (string, time.Duration, ytdlp.Run, error) {
+			cookiesSeen = append(cookiesSeen, cookie)
+			if cookie == "" {
+				return "", 0, ytdlp.Run{}, errors.New("yt-dlp could not resolve the audio: Sign in to confirm your age. This video may be inappropriate for some users.")
+			}
+			return "https://example.com/audio.webm", 3 * time.Minute, ytdlp.Run{}, nil
+		},
+		&auth,
+		&traces,
+	)
+
+	gotURL, gotDur, err := resolve(context.Background(), "age-track")
+	if err != nil {
+		t.Fatalf("age-restricted fallback failed: %v", err)
+	}
+	if gotURL != "https://example.com/audio.webm" || gotDur != 3*time.Minute {
+		t.Fatalf("got (%q, %v), want audio URL and 3m", gotURL, gotDur)
+	}
+	if len(cookiesSeen) != 2 || cookiesSeen[0] != "" || cookiesSeen[1] != "SID=adult-session" {
+		t.Fatalf("yt-dlp cookie sequence = %q, want [\"\" \"SID=adult-session\"]", cookiesSeen)
+	}
+	if trace, ok := traces.get("age-track"); !ok || !trace.Signed {
+		t.Fatalf("resolve trace did not record Signed=true: ok=%v trace=%+v", ok, trace)
+	}
+
+	// Non-age-restricted failures must not retry with cookies when AccountAudio is off.
+	cookiesSeen = nil
+	resolveOther := resolveAudioWith(
+		func(context.Context, string) (string, time.Duration, error) {
+			return "", 0, errors.New("unavailable")
+		},
+		func(_ context.Context, _ string, cookie string) (string, time.Duration, ytdlp.Run, error) {
+			cookiesSeen = append(cookiesSeen, cookie)
+			return "", 0, ytdlp.Run{}, errors.New("yt-dlp could not resolve the audio: Video unavailable")
+		},
+		&auth,
+		&traces,
+	)
+	if _, _, err := resolveOther(context.Background(), "unavailable-track"); err == nil {
+		t.Fatal("expected unavailable track to fail")
+	}
+	if len(cookiesSeen) != 1 || cookiesSeen[0] != "" {
+		t.Fatalf("non-age-restricted error retried with cookies: %q", cookiesSeen)
 	}
 }
 

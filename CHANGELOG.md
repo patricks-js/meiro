@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **The mouse wheel adjusts the volume.** Scrolling over the volume slider or mute button in the player bar, now playing view, or mini player raises or lowers the volume in 5% steps.
 - **Up next opens as a compact popup from the player bar.** Clicking the Up next button shows the queue in a compact floating island above the bar without leaving the current page; clicking the track info or expand button still opens the full player.
+- **Age-restricted tracks play when signed in.** When an age-restricted track fails to resolve anonymously, Meiro automatically retries with your signed-in account cookies without needing "Play audio as my account" enabled for every song.
 
 ## [0.7.2] - 2026-11-17
 

@@ -5,6 +5,20 @@ import (
 	"strings"
 )
 
+var ageRestrictedPhrases = []string{
+	"confirm your age",
+	"age-restricted",
+	"age restricted",
+	"inappropriate for some users",
+}
+
+func isAgeRestrictedError(raw string) bool {
+	lower := strings.ToLower(raw)
+	return slices.ContainsFunc(ageRestrictedPhrases, func(phrase string) bool {
+		return strings.Contains(lower, phrase)
+	})
+}
+
 var playErrorRules = []struct {
 	phrases []string
 	message string
@@ -14,7 +28,7 @@ var playErrorRules = []struct {
 		"This track is not available in your region.",
 	},
 	{
-		[]string{"confirm your age", "age-restricted", "age restricted", "inappropriate for some users"},
+		ageRestrictedPhrases,
 		"This track is age-restricted. Sign in to play it.",
 	},
 	{

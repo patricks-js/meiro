@@ -12,18 +12,30 @@ import (
 	"github.com/elianiva/meiro/youtube"
 )
 
+type ytdlpResolver func(ctx context.Context, videoID, cookie string) (string, time.Duration, ytdlp.Run, error)
+
 func resolveAudio(client *youtube.Client, auth *audioAuth, traces *resolveTraces) audio.Resolver {
+	return resolveAudioWith(client.AudioStream, ytdlp.Resolve, auth, traces)
+}
+
+func resolveAudioWith(
+	directResolve func(context.Context, string) (string, time.Duration, error),
+	ytdlpResolve ytdlpResolver,
+	auth *audioAuth,
+	traces *resolveTraces,
+) audio.Resolver {
 	return func(ctx context.Context, videoID string) (string, time.Duration, error) {
 		trace := resolveTrace{VideoID: videoID, Signed: false}
 		started := time.Now()
 		defer func() { trace.Elapsed = time.Since(started); traces.put(trace) }()
-		if cookie := auth.get(); cookie != "" {
+		cookie, always := auth.get()
+		if always && cookie != "" {
 			trace.Source, trace.Signed = "yt-dlp", true
-			url, total, run, err := ytdlp.Resolve(ctx, videoID, cookie)
+			url, total, run, err := ytdlpResolve(ctx, videoID, cookie)
 			trace.Run, trace.URL = run, url
 			return url, total, err
 		}
-		url, total, err := client.AudioStream(ctx, videoID)
+		url, total, err := directResolve(ctx, videoID)
 		if err == nil {
 			trace.Source, trace.URL = "YouTube player request", url
 			return url, total, nil
@@ -35,7 +47,12 @@ func resolveAudio(client *youtube.Client, auth *audioAuth, traces *resolveTraces
 		log.Printf("playback: direct resolve failed video_id=%s, trying yt-dlp: %v", videoID, err)
 		trace.Source = "yt-dlp"
 		var run ytdlp.Run
-		url, total, run, err = ytdlp.Resolve(ctx, videoID, "")
+		url, total, run, err = ytdlpResolve(ctx, videoID, "")
+		if err != nil && ctx.Err() == nil && cookie != "" && isAgeRestrictedError(err.Error()) {
+			log.Printf("playback: yt-dlp hit age restriction video_id=%s, retrying with account cookies", videoID)
+			trace.Signed = true
+			url, total, run, err = ytdlpResolve(ctx, videoID, cookie)
+		}
 		trace.Run, trace.URL = run, url
 		return url, total, err
 	}
@@ -44,28 +61,29 @@ func resolveAudio(client *youtube.Client, auth *audioAuth, traces *resolveTraces
 type audioAuth struct {
 	mu     sync.Mutex
 	cookie string
+	always bool
 }
 
-func (s *audioAuth) get() string {
+func (s *audioAuth) get() (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cookie
+	return s.cookie, s.always
 }
 
-func (s *audioAuth) set(cookie string) bool {
+func (s *audioAuth) set(cookie string, always bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := s.cookie != cookie
-	s.cookie = cookie
+	changed := s.cookie != cookie || s.always != always
+	s.cookie, s.always = cookie, always
 	return changed
 }
 
 func (a *app) syncAudioAuth() {
 	cookie := ""
-	if a.settings.AccountAudio && a.account.session != nil {
+	if a.account.session != nil {
 		cookie = a.account.session.cookie
 	}
-	if a.audioAuth.set(cookie) {
+	if a.audioAuth.set(cookie, a.settings.AccountAudio) {
 		a.streams.Reset()
 	}
 }
